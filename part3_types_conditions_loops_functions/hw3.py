@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 _DateTuple = tuple[int, int, int]
-_TransactionRecord = tuple[str, float, _DateTuple, str]
 
 UNKNOWN_COMMAND_MSG = "Unknown command!"
 NONPOSITIVE_VALUE_MSG = "Value must be grater than zero!"
@@ -9,6 +8,9 @@ INCORRECT_DATE_MSG = "Invalid date!"
 NOT_EXISTS_CATEGORY = "Category not exists!"
 OP_SUCCESS_MSG = "Added"
 
+_AMOUNT_KEY = "amount"
+_DATE_KEY = "date"
+_CATEGORY_KEY = "category"
 _CATEGORY_SEP = "::"
 
 EXPENSE_CATEGORIES: dict[str, tuple[str, ...]] = {  # noqa: WPS407
@@ -39,10 +41,8 @@ _INCOME_CMD_LEN = 3
 _COST_CMD_LEN = 4
 _COST_CATS_CMD_LEN = 2
 _STATS_CMD_LEN = 2
-_INCOME_TYPE = "income"
-_COST_TYPE = "cost"
 
-financial_transactions_storage: list[_TransactionRecord] = []
+financial_transactions_storage: list[dict[str, object]] = []
 
 
 def is_leap_year(year: int) -> bool:
@@ -100,19 +100,23 @@ def extract_date(maybe_dt: str) -> _DateTuple | None:
 
 def income_handler(amount: float, income_date: str) -> str:
     if amount <= 0:
+        financial_transactions_storage.append({})
         return NONPOSITIVE_VALUE_MSG
     parsed_date = extract_date(income_date)
     if parsed_date is None:
+        financial_transactions_storage.append({})
         return INCORRECT_DATE_MSG
-    financial_transactions_storage.append((_INCOME_TYPE, amount, parsed_date, ""))
+    financial_transactions_storage.append({_AMOUNT_KEY: amount, _DATE_KEY: parsed_date})
     return OP_SUCCESS_MSG
 
 
 def cost_handler(category_name: str, amount: float, income_date: str) -> str:
     if amount <= 0:
+        financial_transactions_storage.append({})
         return NONPOSITIVE_VALUE_MSG
     parsed_date = extract_date(income_date)
     if parsed_date is None:
+        financial_transactions_storage.append({})
         return INCORRECT_DATE_MSG
     cat_parts = category_name.split(_CATEGORY_SEP)
     valid_category = (
@@ -121,8 +125,13 @@ def cost_handler(category_name: str, amount: float, income_date: str) -> str:
         and cat_parts[1] in EXPENSE_CATEGORIES[cat_parts[0]]
     )
     if not valid_category:
+        financial_transactions_storage.append({})
         return NOT_EXISTS_CATEGORY
-    financial_transactions_storage.append((_COST_TYPE, amount, parsed_date, category_name))
+    financial_transactions_storage.append({
+        _CATEGORY_KEY: category_name,
+        _AMOUNT_KEY: amount,
+        _DATE_KEY: parsed_date,
+    })
     return OP_SUCCESS_MSG
 
 
@@ -157,15 +166,51 @@ def _add_to_expense_details(
     expense_details[cat_key] = expense_details.get(cat_key, float(0)) + amount
 
 
+def _is_income(transaction: dict[str, object]) -> bool:
+    return bool(transaction) and _CATEGORY_KEY not in transaction
+
+
+def _process_income(
+    transaction: dict[str, object],
+    parsed_date: _DateTuple,
+    monthly: list[float],
+) -> float:
+    date: _DateTuple = transaction[_DATE_KEY]  # type: ignore[assignment]
+    if not _date_lte(date, parsed_date):
+        return float(0)
+    amount: float = transaction[_AMOUNT_KEY]  # type: ignore[assignment]
+    if _in_report_period(date, parsed_date):
+        monthly[0] += amount
+    return amount
+
+
 def _accumulate_incomes(parsed_date: _DateTuple, monthly: list[float]) -> float:
     total = float(0)
-    for rec_type, amount, date, _ in financial_transactions_storage:
-        if rec_type != _INCOME_TYPE or not _date_lte(date, parsed_date):
-            continue
-        total += amount
-        if _in_report_period(date, parsed_date):
-            monthly[0] += amount
+    for transaction in financial_transactions_storage:
+        if _is_income(transaction):
+            total += _process_income(transaction, parsed_date, monthly)
     return total
+
+
+def _is_cost(transaction: dict[str, object]) -> bool:
+    return bool(transaction) and _CATEGORY_KEY in transaction
+
+
+def _process_cost(
+    transaction: dict[str, object],
+    parsed_date: _DateTuple,
+    monthly: list[float],
+    expense_details: dict[str, float],
+) -> float:
+    date: _DateTuple = transaction[_DATE_KEY]  # type: ignore[assignment]
+    if not _date_lte(date, parsed_date):
+        return float(0)
+    amount: float = transaction[_AMOUNT_KEY]  # type: ignore[assignment]
+    category: str = transaction.get(_CATEGORY_KEY, "")  # type: ignore[assignment]
+    if _in_report_period(date, parsed_date):
+        monthly[1] += amount
+        _add_to_expense_details(expense_details, category, amount)
+    return amount
 
 
 def _accumulate_costs(
@@ -174,13 +219,9 @@ def _accumulate_costs(
     expense_details: dict[str, float],
 ) -> float:
     total = float(0)
-    for rec_type, amount, date, category in financial_transactions_storage:
-        if rec_type != _COST_TYPE or not _date_lte(date, parsed_date):
-            continue
-        total += amount
-        if _in_report_period(date, parsed_date):
-            monthly[1] += amount
-            _add_to_expense_details(expense_details, category, amount)
+    for transaction in financial_transactions_storage:
+        if _is_cost(transaction):
+            total += _process_cost(transaction, parsed_date, monthly, expense_details)
     return total
 
 
