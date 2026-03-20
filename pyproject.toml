@@ -21,6 +21,8 @@ ignore = [
     "ISC001",
 ]
 
+external = ["WPS221", "WPS457"]
+
 [tool.ruff.lint.per-file-ignores]
 "part3_types_conditions_loops_functions/*" = ["T201","N999"]
 "**/tests/*" = ["S101", "PT022"]
@@ -31,6 +33,7 @@ strict = true
 warn_return_any = true
 warn_unused_ignores = true
 exclude = [".*\\.ipynb"]
+explicit_package_bases = true
 
 [tool.ty.src]
 include = ["**/*.py"]
