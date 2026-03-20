@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-from types import MappingProxyType
-from typing import Any
-
 _DateTuple = tuple[int, int, int]
+_TransactionRecord = tuple[str, float, _DateTuple, str]
 
 UNKNOWN_COMMAND_MSG = "Unknown command!"
 NONPOSITIVE_VALUE_MSG = "Value must be grater than zero!"
@@ -11,12 +9,9 @@ INCORRECT_DATE_MSG = "Invalid date!"
 NOT_EXISTS_CATEGORY = "Category not exists!"
 OP_SUCCESS_MSG = "Added"
 
-_AMOUNT_KEY = "amount"
-_DATE_KEY = "date"
-_CATEGORY_KEY = "category"
 _CATEGORY_SEP = "::"
 
-EXPENSE_CATEGORIES: MappingProxyType[str, tuple[str, ...]] = MappingProxyType({
+EXPENSE_CATEGORIES: dict[str, tuple[str, ...]] = {  # noqa: WPS407
     "Food": ("Supermarket", "Restaurants", "FastFood", "Coffee", "Delivery"),
     "Transport": ("Taxi", "Public transport", "Gas", "Car service"),
     "Housing": ("Rent", "Utilities", "Repairs", "Furniture"),
@@ -25,8 +20,7 @@ EXPENSE_CATEGORIES: MappingProxyType[str, tuple[str, ...]] = MappingProxyType({
     "Clothing": ("Outerwear", "Casual", "Shoes", "Accessories"),
     "Education": ("Courses", "Books", "Tutors"),
     "Communications": ("Mobile", "Internet", "Subscriptions"),
-    "Other": (),
-})
+}
 
 _DAYS_IN_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)  # noqa: WPS221
 _LEAP_FEB_DAYS = 29
@@ -45,8 +39,10 @@ _INCOME_CMD_LEN = 3
 _COST_CMD_LEN = 4
 _COST_CATS_CMD_LEN = 2
 _STATS_CMD_LEN = 2
+_INCOME_TYPE = "income"
+_COST_TYPE = "cost"
 
-financial_transactions_storage: list[dict[str, Any]] = []
+financial_transactions_storage: list[_TransactionRecord] = []
 
 
 def is_leap_year(year: int) -> bool:
@@ -104,23 +100,19 @@ def extract_date(maybe_dt: str) -> _DateTuple | None:
 
 def income_handler(amount: float, income_date: str) -> str:
     if amount <= 0:
-        financial_transactions_storage.append({})
         return NONPOSITIVE_VALUE_MSG
     parsed_date = extract_date(income_date)
     if parsed_date is None:
-        financial_transactions_storage.append({})
         return INCORRECT_DATE_MSG
-    financial_transactions_storage.append({_AMOUNT_KEY: amount, _DATE_KEY: parsed_date})
+    financial_transactions_storage.append((_INCOME_TYPE, amount, parsed_date, ""))
     return OP_SUCCESS_MSG
 
 
 def cost_handler(category_name: str, amount: float, income_date: str) -> str:
     if amount <= 0:
-        financial_transactions_storage.append({})
         return NONPOSITIVE_VALUE_MSG
     parsed_date = extract_date(income_date)
     if parsed_date is None:
-        financial_transactions_storage.append({})
         return INCORRECT_DATE_MSG
     cat_parts = category_name.split(_CATEGORY_SEP)
     valid_category = (
@@ -129,13 +121,8 @@ def cost_handler(category_name: str, amount: float, income_date: str) -> str:
         and cat_parts[1] in EXPENSE_CATEGORIES[cat_parts[0]]
     )
     if not valid_category:
-        financial_transactions_storage.append({})
         return NOT_EXISTS_CATEGORY
-    financial_transactions_storage.append({
-        _CATEGORY_KEY: category_name,
-        _AMOUNT_KEY: amount,
-        _DATE_KEY: parsed_date,
-    })
+    financial_transactions_storage.append((_COST_TYPE, amount, parsed_date, category_name))
     return OP_SUCCESS_MSG
 
 
@@ -157,6 +144,10 @@ def _date_lte(date1: _DateTuple, date2: _DateTuple) -> bool:
     return date1[0] <= date2[0]
 
 
+def _in_report_period(date: _DateTuple, parsed_date: _DateTuple) -> bool:
+    return date[1] == parsed_date[1] and date[2] == parsed_date[2]  # noqa: WPS221
+
+
 def _add_to_expense_details(
     expense_details: dict[str, float],
     category: str,
@@ -166,39 +157,41 @@ def _add_to_expense_details(
     expense_details[cat_key] = expense_details.get(cat_key, float(0)) + amount
 
 
-def _update_monthly(
-    transaction: dict[str, Any],
-    t_date: _DateTuple,
+def _accumulate_incomes(parsed_date: _DateTuple, monthly: list[float]) -> float:
+    total = float(0)
+    for rec_type, amount, date, _ in financial_transactions_storage:
+        if rec_type != _INCOME_TYPE or not _date_lte(date, parsed_date):
+            continue
+        total += amount
+        if _in_report_period(date, parsed_date):
+            monthly[0] += amount
+    return total
+
+
+def _accumulate_costs(
     parsed_date: _DateTuple,
     monthly: list[float],
     expense_details: dict[str, float],
-) -> None:
-    if t_date[1] != parsed_date[1] or t_date[2] != parsed_date[2]:  # noqa: WPS221
-        return
-    amount: float = transaction.get(_AMOUNT_KEY, float(0))
-    if _CATEGORY_KEY in transaction:
-        monthly[1] += amount
-        _add_to_expense_details(expense_details, transaction.get(_CATEGORY_KEY, ""), amount)
-    else:
-        monthly[0] += amount
+) -> float:
+    total = float(0)
+    for rec_type, amount, date, category in financial_transactions_storage:
+        if rec_type != _COST_TYPE or not _date_lte(date, parsed_date):
+            continue
+        total += amount
+        if _in_report_period(date, parsed_date):
+            monthly[1] += amount
+            _add_to_expense_details(expense_details, category, amount)
+    return total
 
 
 def _process_transactions(
     parsed_date: _DateTuple,
     expense_details: dict[str, float],
 ) -> tuple[float, float, float]:
-    total_capital = float(0)
     monthly: list[float] = [float(0), float(0)]
-    for transaction in financial_transactions_storage:
-        if not transaction or not _date_lte(transaction[_DATE_KEY], parsed_date):
-            continue
-        t_date: _DateTuple = transaction[_DATE_KEY]
-        if _CATEGORY_KEY in transaction:
-            total_capital -= transaction.get(_AMOUNT_KEY, float(0))
-        else:
-            total_capital += transaction.get(_AMOUNT_KEY, float(0))
-        _update_monthly(transaction, t_date, parsed_date, monthly, expense_details)
-    return total_capital, monthly[0], monthly[1]
+    income_total = _accumulate_incomes(parsed_date, monthly)
+    cost_total = _accumulate_costs(parsed_date, monthly, expense_details)
+    return income_total - cost_total, monthly[0], monthly[1]
 
 
 def _format_stats(

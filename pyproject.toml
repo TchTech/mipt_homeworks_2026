@@ -21,7 +21,7 @@ ignore = [
     "ISC001",
 ]
 
-external = ["WPS221", "WPS457"]
+external = ["WPS221", "WPS407", "WPS457"]
 
 [tool.ruff.lint.per-file-ignores]
 "part3_types_conditions_loops_functions/*" = ["T201","N999"]
