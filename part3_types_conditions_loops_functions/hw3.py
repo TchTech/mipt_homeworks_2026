@@ -81,7 +81,7 @@ def is_leap_year(year: int) -> bool:
     return year % _LEAP_CYCLE_SMALL == 0
 
 
-def _check_parts_valid(day_str: str, month_str: str, year_str: str) -> bool:
+def _is_date_format_valid(day_str: str, month_str: str, year_str: str) -> bool:
     lengths_ok = (
         len(day_str) == _DD_LEN
         and len(month_str) == _MM_LEN
@@ -106,7 +106,7 @@ def extract_date(maybe_dt: str) -> _DateTuple | None:
     parts = maybe_dt.split("-")
     if len(parts) != _DATE_PARTS:
         return None
-    if not _check_parts_valid(parts[0], parts[1], parts[2]):
+    if not _is_date_format_valid(parts[0], parts[1], parts[2]):
         return None
     day = int(parts[0])
     month = int(parts[1])
@@ -176,9 +176,9 @@ def _date_lte(date1: _DateTuple, date2: _DateTuple) -> bool:
     return date1[0] <= date2[0]
 
 
-def _in_report_period(date: _DateTuple, parsed_date: _DateTuple) -> bool:
-    same_month = date[1] == parsed_date[1]
-    same_year = date[2] == parsed_date[2]
+def _is_in_report_period(date: _DateTuple, as_of_date: _DateTuple) -> bool:
+    same_month = date[1] == as_of_date[1]
+    same_year = date[2] == as_of_date[2]
     return same_month and same_year
 
 
@@ -197,23 +197,23 @@ def _is_income(transaction: _Transaction) -> TypeGuard[_IncomeTransaction]:
 
 def _process_income(
     transaction: _IncomeTransaction,
-    parsed_date: _DateTuple,
+    as_of_date: _DateTuple,
     monthly: list[float],
 ) -> float:
     date = transaction["date"]
-    if not _date_lte(date, parsed_date):
+    if not _date_lte(date, as_of_date):
         return float(0)
     amount = transaction["amount"]
-    if _in_report_period(date, parsed_date):
+    if _is_in_report_period(date, as_of_date):
         monthly[0] += amount
     return amount
 
 
-def _accumulate_incomes(parsed_date: _DateTuple, monthly: list[float]) -> float:
+def _accumulate_incomes(as_of_date: _DateTuple, monthly: list[float]) -> float:
     total = float(0)
     for transaction in financial_transactions_storage:
         if _is_income(transaction):
-            total += _process_income(transaction, parsed_date, monthly)
+            total += _process_income(transaction, as_of_date, monthly)
     return total
 
 
@@ -223,40 +223,40 @@ def _is_cost(transaction: _Transaction) -> TypeGuard[_CostTransaction]:
 
 def _process_cost(
     transaction: _CostTransaction,
-    parsed_date: _DateTuple,
+    as_of_date: _DateTuple,
     monthly: list[float],
     expense_details: dict[str, float],
 ) -> float:
     date = transaction["date"]
-    if not _date_lte(date, parsed_date):
+    if not _date_lte(date, as_of_date):
         return float(0)
     amount = transaction["amount"]
     category = transaction["category"]
-    if _in_report_period(date, parsed_date):
+    if _is_in_report_period(date, as_of_date):
         monthly[1] += amount
         _add_to_expense_details(expense_details, category, amount)
     return amount
 
 
 def _accumulate_costs(
-    parsed_date: _DateTuple,
+    as_of_date: _DateTuple,
     monthly: list[float],
     expense_details: dict[str, float],
 ) -> float:
     total = float(0)
     for transaction in financial_transactions_storage:
         if _is_cost(transaction):
-            total += _process_cost(transaction, parsed_date, monthly, expense_details)
+            total += _process_cost(transaction, as_of_date, monthly, expense_details)
     return total
 
 
 def _process_transactions(
-    parsed_date: _DateTuple,
+    as_of_date: _DateTuple,
     expense_details: dict[str, float],
 ) -> tuple[float, float, float]:
     monthly: list[float] = [float(0), float(0)]
-    income_total = _accumulate_incomes(parsed_date, monthly)
-    cost_total = _accumulate_costs(parsed_date, monthly, expense_details)
+    income_total = _accumulate_incomes(as_of_date, monthly)
+    cost_total = _accumulate_costs(as_of_date, monthly, expense_details)
     return income_total - cost_total, monthly[0], monthly[1]
 
 
