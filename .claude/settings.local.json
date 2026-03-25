@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m ruff check part3_types_conditions_loops_functions/hw3.py)",
+      "Bash(python -m mypy part3_types_conditions_loops_functions/hw3.py)"
+    ]
+  }
+}
