@@ -86,6 +86,7 @@ class LFUPolicy(Policy[K]):
     capacity: int = 5
     _key_counter: dict[K, int] = field(default_factory=dict, init=False)
     _insertion_order: list[K] = field(default_factory=list, init=False)
+    _last_key: K | None = field(default=None, init=False)
 
     @property
     def has_keys(self) -> bool:
@@ -95,14 +96,13 @@ class LFUPolicy(Policy[K]):
         if key not in self._key_counter:
             self._insertion_order.append(key)
         self._key_counter[key] = self._key_counter.get(key, 0) + 1
+        self._last_key = key
 
     def get_key_to_evict(self) -> K | None:
         if len(self._key_counter) <= self.capacity:
             return None
-        sorted_keys = sorted(
-            self._insertion_order,
-            key=self._key_counter.__getitem__,
-        )
+        candidates = [k for k in self._insertion_order if k != self._last_key]
+        sorted_keys = sorted(candidates, key=self._key_counter.__getitem__)
         return sorted_keys[0]
 
     def remove_key(self, key: K) -> None:
@@ -113,6 +113,7 @@ class LFUPolicy(Policy[K]):
     def clear(self) -> None:
         self._key_counter.clear()
         self._insertion_order.clear()
+        self._last_key = None
 
 
 class MIPTCache(Cache[K, V]):
