@@ -34,9 +34,8 @@ class FIFOPolicy(Policy[K]):
     _order: list[K] = field(default_factory=list, init=False)
 
     def register_access(self, key: K) -> None:
-        if key in self._order:
-            self._order.remove(key)
-        self._order.append(key)
+        if key not in self._order:
+            self._order.append(key)
 
     def get_key_to_evict(self) -> K | None:
         if len(self._order) > self.capacity:
@@ -86,26 +85,34 @@ class LRUPolicy(Policy[K]):
 class LFUPolicy(Policy[K]):
     capacity: int = 5
     _key_counter: dict[K, int] = field(default_factory=dict, init=False)
+    _insertion_order: list[K] = field(default_factory=list, init=False)
 
     @property
     def has_keys(self) -> bool:
         return bool(self._key_counter)
 
     def register_access(self, key: K) -> None:
+        if key not in self._key_counter:
+            self._insertion_order.append(key)
         self._key_counter[key] = self._key_counter.get(key, 0) + 1
 
     def get_key_to_evict(self) -> K | None:
         if len(self._key_counter) <= self.capacity:
             return None
-        sorted_keys = sorted(self._key_counter, key=self._key_counter.__getitem__)
+        sorted_keys = sorted(
+            self._insertion_order,
+            key=self._key_counter.__getitem__,
+        )
         return sorted_keys[0]
 
     def remove_key(self, key: K) -> None:
-        if key in self._key_counter:
-            del self._key_counter[key]
+        self._key_counter.pop(key, None)
+        if key in self._insertion_order:
+            self._insertion_order.remove(key)
 
     def clear(self) -> None:
         self._key_counter.clear()
+        self._insertion_order.clear()
 
 
 class MIPTCache(Cache[K, V]):
