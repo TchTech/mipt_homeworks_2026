@@ -155,8 +155,8 @@ class CachedProperty[V]:
         if instance is None:
             return self._func  # type: ignore[return-value]
         # Так разрешил делать Матвей :)
-        cache: Cache[Any, Any] = instance.cache
-        cached = cache.get(self._cache_key)
+        cache: Cache[str, V] = instance.cache
+        cached: V | None = cache.get(self._cache_key)
         if cached is not None:
             return cached
 
