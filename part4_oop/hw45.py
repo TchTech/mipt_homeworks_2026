@@ -87,11 +87,12 @@ class LFUPolicy(Policy[K]):
     capacity: int = 5
     _key_counter: dict[K, int] = field(default_factory=dict, init=False)
 
+    @property
+    def has_keys(self) -> bool:
+        return bool(self._key_counter)
+
     def register_access(self, key: K) -> None:
-        if key in self._key_counter:
-            self._key_counter[key] += 1
-        else:
-            self._key_counter[key] = 1
+        self._key_counter[key] = self._key_counter.get(key, 0) + 1
 
     def get_key_to_evict(self) -> K | None:
         if len(self._key_counter) <= self.capacity:
@@ -105,14 +106,6 @@ class LFUPolicy(Policy[K]):
 
     def clear(self) -> None:
         self._key_counter.clear()
-
-    @property
-    def has_keys(self) -> bool:
-        return bool(self._key_counter)
-
-    def __init__(self, capacity: int = 5) -> None:
-        self.capacity = capacity
-        self._key_counter = {}
 
 
 class MIPTCache(Cache[K, V]):
@@ -154,7 +147,8 @@ class CachedProperty[V]:
         if instance is None:
             return self._func  # type: ignore[return-value]
         # Так разрешил делать Матвей :)
-        cached = instance.cache.get(self._cache_key)
+        cache: Cache[Any, Any] = instance.cache
+        cached = cache.get(self._cache_key)
         if cached is not None:
             return cached
 
