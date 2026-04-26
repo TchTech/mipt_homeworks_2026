@@ -1,12 +1,9 @@
+import datetime
+import functools
 import json
+from collections.abc import Callable
 from typing import Any, ParamSpec, Protocol, TypeVar
 from urllib.request import urlopen
-
-INVALID_CRITICAL_COUNT = "Breaker count must be positive integer!"
-INVALID_RECOVERY_TIME = "Breaker recovery time must be positive integer!"
-VALIDATIONS_FAILED = "Invalid decorator args."
-TOO_MUCH = "Too much requests, just wait."
-
 
 P = ParamSpec("P")
 R_co = TypeVar("R_co", covariant=True)
@@ -19,20 +16,71 @@ class CallableWithMeta(Protocol[P, R_co]):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
 
 
+INVALID_CRITICAL_COUNT = "Breaker count must be positive integer!"
+INVALID_RECOVERY_TIME = "Breaker recovery time must be positive integer!"
+VALIDATIONS_FAILED = "Invalid decorator args."
+TOO_MUCH = "Too much requests, just wait."
+
+
 class BreakerError(Exception):
-    pass
+    def __init__(self, func_name: str, block_time: datetime.datetime) -> None:
+        super().__init__(TOO_MUCH)
+        self.func_name = func_name
+        self.block_time = block_time
 
 
 class CircuitBreaker:
     def __init__(
         self,
-        critical_count: int,
-        time_to_recover: int,
-        triggers_on: type[Exception],
-    ): ...
+        critical_count: int = 5,
+        time_to_recover: int = 30,
+        triggers_on: type[Exception] = Exception,
+    ) -> None:
+        errors: list[ValueError] = []
+        if critical_count.__class__ is not int or critical_count < 1:
+            errors.append(ValueError(INVALID_CRITICAL_COUNT))
+        if time_to_recover.__class__ is not int or time_to_recover < 1:
+            errors.append(ValueError(INVALID_RECOVERY_TIME))
+        if errors:
+            raise ExceptionGroup(VALIDATIONS_FAILED, errors)
 
-    def __call__(self, func: CallableWithMeta[P, R_co]) -> CallableWithMeta[P, R_co]:
-        raise NotImplementedError
+        self.critical_count = critical_count
+        self.time_to_recover = time_to_recover
+        self.triggers_on = triggers_on
+
+    def __call__(self, func: CallableWithMeta[P, R_co]) -> Callable[P, R_co]:
+        func_name = f"{func.__module__}.{func.__name__}"
+        self._count = 0
+        self._block_time: datetime.datetime | None = None
+
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R_co:
+            self._check_recovery(func_name)
+            try:
+                result = func(*args, **kwargs)
+            except self.triggers_on as exc:
+                self._handle_error(func_name, exc)
+                raise
+            self._count = 0
+            return result
+
+        return wrapper
+
+    def _check_recovery(self, func_name: str) -> None:
+        if self._block_time is None:
+            return
+        now = datetime.datetime.now(datetime.UTC)
+        elapsed = (now - self._block_time).total_seconds()
+        if elapsed < self.time_to_recover:
+            raise BreakerError(func_name, self._block_time)
+        self._count = 0
+        self._block_time = None
+
+    def _handle_error(self, func_name: str, exc: Exception) -> None:
+        self._count += 1
+        if self._count >= self.critical_count:
+            self._block_time = datetime.datetime.now(datetime.UTC)
+            raise BreakerError(func_name, self._block_time) from exc
 
 
 circuit_breaker = CircuitBreaker(5, 30, Exception)
